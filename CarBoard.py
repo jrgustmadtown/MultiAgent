@@ -42,14 +42,15 @@ class CarBoard:
         return self.point_grid[pos]
     
     def move_car(self, car, new_pos):
-        """Move a car to new position if valid"""
-        if self._is_valid_pos(new_pos):
-            if car == 'A':
-                self.car_a_pos = new_pos
-            elif car == 'B':
-                self.car_b_pos = new_pos
-            return True
-        return False
+        """Move a car to new position (must be valid)"""
+        if not self._is_valid_pos(new_pos):
+            raise ValueError(f"Invalid position {new_pos} for car {car}")
+        
+        if car == 'A':
+            self.car_a_pos = new_pos
+        elif car == 'B':
+            self.car_b_pos = new_pos
+        return True
     
     def _is_valid_pos(self, pos):
         """Check if position is within grid bounds"""

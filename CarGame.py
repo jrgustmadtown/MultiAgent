@@ -34,10 +34,27 @@ class CarGame:
         self.score_a = 0
         self.score_b = 0
     
+    def get_valid_actions(self, car='A'):
+        """
+        Get list of valid action indices for a car at its current position
+        Returns list of action indices (0=up, 1=down, 2=left, 3=right)
+        """
+        pos = self.board.car_a_pos if car == 'A' else self.board.car_b_pos
+        valid = []
+        
+        for action_idx, delta in self.ACTIONS.items():
+            new_pos = addTuple(pos, delta)
+            if self.board._is_valid_pos(new_pos):
+                valid.append(action_idx)
+        
+        return valid
+    
     def executeRound(self, action_a, action_b):
         """
         Execute one round: both players move simultaneously
         Returns: (reward_a, reward_b, game_over)
+        Zero-sum game: reward_a + reward_b = 0 always
+        Note: Invalid actions should never be passed to this method
         """
         if self.game_over:
             return 0, 0, True
@@ -50,17 +67,17 @@ class CarGame:
         new_pos_a = addTuple(self.board.car_a_pos, delta_a)
         new_pos_b = addTuple(self.board.car_b_pos, delta_b)
         
-        # Move cars (only if valid positions)
+        # Move cars (positions should always be valid)
         self.board.move_car('A', new_pos_a)
         self.board.move_car('B', new_pos_b)
         
-        # Calculate base rewards (points from squares)
-        reward_a = self.board.get_square_points(self.board.car_a_pos)
-        reward_b = self.board.get_square_points(self.board.car_b_pos)
+        # Calculate rewards (points from squares)
+        points_a = self.board.get_square_points(self.board.car_a_pos)
+        points_b = self.board.get_square_points(self.board.car_b_pos)
         
-        # Update cumulative scores
-        self.score_a += reward_a
-        self.score_b += reward_b
+        # Zero-sum rewards: your points - opponent's points
+        reward_a = points_a - points_b
+        reward_b = points_b - points_a
         
         # Check for crash
         if self.board.is_crash():
@@ -68,6 +85,10 @@ class CarGame:
             self.game_over = True
             reward_a += 10  # A gets bonus for crashing
             reward_b -= 10  # B gets penalty for being caught
+        
+        # Update cumulative scores with zero-sum rewards
+        self.score_a += reward_a
+        self.score_b += reward_b
         
         # Check for max turns
         self.current_turn += 1

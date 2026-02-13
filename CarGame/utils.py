@@ -39,15 +39,21 @@ def test_models(model_a, model_b, display=True, noise_factor=10.0):
     
     turn = 0
     while not game.game_over:
-        # Agent A selects action
+        # Get valid actions
+        valid_actions_a = game.get_valid_actions('A')
+        valid_actions_b = game.get_valid_actions('B')
+        
+        # Agent A selects action (greedy, only from valid actions)
         qval_a = model_a(state)
         qval_a_ = qval_a.data.numpy()
-        action_a = np.argmax(qval_a_)
+        valid_qvals_a = [(a, qval_a_[a]) for a in valid_actions_a]
+        action_a = max(valid_qvals_a, key=lambda x: x[1])[0]
         
-        # Agent B selects action
+        # Agent B selects action (greedy, only from valid actions)
         qval_b = model_b(state)
         qval_b_ = qval_b.data.numpy()
-        action_b = np.argmax(qval_b_)
+        valid_qvals_b = [(a, qval_b_[a]) for a in valid_actions_b]
+        action_b = max(valid_qvals_b, key=lambda x: x[1])[0]
         
         if display:
             print(f'Turn {turn}: A moves {list(ACTION_SET.values())[action_a]}, B moves {list(ACTION_SET.values())[action_b]}')
@@ -191,6 +197,103 @@ def plot_losses(losses, title="Training Loss", smooth=False, save_path=None):
         plt.close()
     else:
         plt.show()
+
+
+def visualize_policy(model_a, model_b, opponent_pos, output_dir='policy_images'):
+    """
+    Create policy visualization images showing best move for each position
+    
+    Args:
+        model_a: Trained model for agent A
+        model_b: Trained model for agent B
+        opponent_pos: Fixed opponent position (row, col) to visualize policy against
+        output_dir: Directory to save images
+    """
+    import os
+    from CarBoard import CarBoard
+    
+    os.makedirs(output_dir, exist_ok=True)
+    
+    # Action to arrow direction mapping
+    action_arrows = {
+        0: (0, -0.4),    # up: arrow points up
+        1: (0, 0.4),     # down: arrow points down
+        2: (-0.4, 0),    # left: arrow points left
+        3: (0.4, 0)      # right: arrow points right
+    }
+    
+    # Create separate visualizations for each agent
+    for agent, model in [('A', model_a), ('B', model_b)]:
+        fig, ax = plt.subplots(figsize=(10, 10))
+        
+        # Draw grid
+        for i in range(GRID_SIZE + 1):
+            ax.axhline(i, color='gray', linewidth=0.5)
+            ax.axvline(i, color='gray', linewidth=0.5)
+        
+        # For each position on the grid
+        for i in range(GRID_SIZE):
+            for j in range(GRID_SIZE):
+                # Create a temporary game state
+                board = CarBoard(size=GRID_SIZE)
+                
+                if agent == 'A':
+                    board.car_a_pos = (i, j)
+                    board.car_b_pos = opponent_pos
+                    car_pos = (i, j)
+                else:
+                    board.car_a_pos = opponent_pos
+                    board.car_b_pos = (i, j)
+                    car_pos = (i, j)
+                
+                # Get state and predict best action
+                state = torch.from_numpy(board.get_state_vector()).float()
+                qvals = model(state).data.numpy()
+                
+                # Get valid actions
+                from CarGame import CarGame, addTuple
+                temp_game = CarGame(size=GRID_SIZE)
+                temp_game.board = board
+                valid_actions = temp_game.get_valid_actions(agent)
+                
+                # Find best valid action
+                valid_qvals = [(a, qvals[a]) for a in valid_actions]
+                best_action = max(valid_qvals, key=lambda x: x[1])[0]
+                
+                # Draw arrow for best action
+                dx, dy = action_arrows[best_action]
+                # Convert (row, col) to (x, y) for plotting: x=col, y=row (inverted)
+                x = j + 0.5
+                y = GRID_SIZE - i - 0.5  # Invert y-axis
+                
+                color = 'red' if agent == 'A' else 'blue'
+                ax.arrow(x, y, dx, dy, head_width=0.15, head_length=0.1, 
+                        fc=color, ec=color, linewidth=2)
+        
+        # Mark opponent position
+        opp_x = opponent_pos[1] + 0.5
+        opp_y = GRID_SIZE - opponent_pos[0] - 0.5
+        opp_color = 'blue' if agent == 'A' else 'red'
+        opp_label = 'B' if agent == 'A' else 'A'
+        ax.plot(opp_x, opp_y, 'o', color=opp_color, markersize=20, 
+               markeredgecolor='black', markeredgewidth=2)
+        ax.text(opp_x, opp_y, opp_label, ha='center', va='center', 
+               fontsize=14, fontweight='bold', color='white')
+        
+        # Formatting
+        ax.set_xlim(0, GRID_SIZE)
+        ax.set_ylim(0, GRID_SIZE)
+        ax.set_aspect('equal')
+        ax.set_xlabel('Column', fontsize=12)
+        ax.set_ylabel('Row', fontsize=12)
+        ax.set_title(f'Agent {agent} Policy (Opponent at {opponent_pos})', fontsize=16)
+        ax.invert_yaxis()  # Row 0 at top
+        
+        # Save figure
+        filename = f'{output_dir}/agent_{agent}_vs_{opponent_pos[0]}_{opponent_pos[1]}.png'
+        plt.savefig(filename, dpi=300, bbox_inches='tight')
+        print(f"Saved policy visualization: {filename}")
+        plt.close()
 
 
 def save_model(model, filepath):

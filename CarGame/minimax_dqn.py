@@ -89,21 +89,29 @@ def train_minimax_dqn(config=None):
         while not game_over:
             j += 1
             
-            # Agent A selects action (epsilon-greedy)
+            # Get valid actions for both agents
+            valid_actions_a = game.get_valid_actions('A')
+            valid_actions_b = game.get_valid_actions('B')
+            
+            # Agent A selects action (epsilon-greedy, only from valid actions)
             qval_a = model_a(state)
             qval_a_ = qval_a.data.numpy()
             if random.random() < epsilon:
-                action_a = np.random.randint(0, 4)
+                action_a = random.choice(valid_actions_a)
             else:
-                action_a = np.argmax(qval_a_)
+                # Choose best action among valid ones
+                valid_qvals = [(a, qval_a_[a]) for a in valid_actions_a]
+                action_a = max(valid_qvals, key=lambda x: x[1])[0]
             
-            # Agent B selects action (epsilon-greedy)
+            # Agent B selects action (epsilon-greedy, only from valid actions)
             qval_b = model_b(state)
             qval_b_ = qval_b.data.numpy()
             if random.random() < epsilon:
-                action_b = np.random.randint(0, 4)
+                action_b = random.choice(valid_actions_b)
             else:
-                action_b = np.argmax(qval_b_)
+                # Choose best action among valid ones
+                valid_qvals = [(a, qval_b_[a]) for a in valid_actions_b]
+                action_b = max(valid_qvals, key=lambda x: x[1])[0]
             
             # Execute both actions simultaneously
             reward_a, reward_b, game_over = game.executeRound(action_a, action_b)
@@ -113,10 +121,10 @@ def train_minimax_dqn(config=None):
             state2 = torch.from_numpy(state2_).float()
             
             # Store experiences (separate buffers)
-            # For minimax: A wants to maximize (reward_a - reward_b)
-            #              B wants to maximize (reward_b - reward_a)
-            exp_a = (state, action_a, reward_a - reward_b, state2, game_over)
-            exp_b = (state, action_b, reward_b - reward_a, state2, game_over)
+            # Each agent learns from their own rewards
+            # Crash bonus/penalty creates the adversarial dynamic
+            exp_a = (state, action_a, reward_a, state2, game_over)
+            exp_b = (state, action_b, reward_b, state2, game_over)
             
             replay_a.append(exp_a)
             replay_b.append(exp_b)
@@ -127,10 +135,10 @@ def train_minimax_dqn(config=None):
             if len(replay_a) > batch_size:
                 minibatch = random.sample(replay_a, batch_size)
                 
-                state1_batch = torch.cat([s1 for (s1, a, r, s2, d) in minibatch])
+                state1_batch = torch.stack([s1 for (s1, a, r, s2, d) in minibatch])
                 action_batch = torch.Tensor([a for (s1, a, r, s2, d) in minibatch])
                 reward_batch = torch.Tensor([r for (s1, a, r, s2, d) in minibatch])
-                state2_batch = torch.cat([s2 for (s1, a, r, s2, d) in minibatch])
+                state2_batch = torch.stack([s2 for (s1, a, r, s2, d) in minibatch])
                 done_batch = torch.Tensor([d for (s1, a, r, s2, d) in minibatch])
                 
                 Q1 = model_a(state1_batch)
@@ -150,10 +158,10 @@ def train_minimax_dqn(config=None):
             if len(replay_b) > batch_size:
                 minibatch = random.sample(replay_b, batch_size)
                 
-                state1_batch = torch.cat([s1 for (s1, a, r, s2, d) in minibatch])
+                state1_batch = torch.stack([s1 for (s1, a, r, s2, d) in minibatch])
                 action_batch = torch.Tensor([a for (s1, a, r, s2, d) in minibatch])
                 reward_batch = torch.Tensor([r for (s1, a, r, s2, d) in minibatch])
-                state2_batch = torch.cat([s2 for (s1, a, r, s2, d) in minibatch])
+                state2_batch = torch.stack([s2 for (s1, a, r, s2, d) in minibatch])
                 done_batch = torch.Tensor([d for (s1, a, r, s2, d) in minibatch])
                 
                 Q1 = model_b(state1_batch)
@@ -170,9 +178,8 @@ def train_minimax_dqn(config=None):
                 optimizer_b.step()
             
             # Display progress
-            if len(losses_a) > 0 and len(losses_b) > 0:
-                print(f"Epoch {i}/{epochs}, Step {j}, Loss_A: {losses_a[-1]:.6f}, Loss_B: {losses_b[-1]:.6f}, Replay: {len(replay_a)}")
-                clear_output(wait=True)
+            if j % 100 == 0 and len(losses_a) > 0 and len(losses_b) > 0:
+                print(f"Epoch {i}/{epochs}, Step {j}, Loss_A: {losses_a[-1]:.6f}, Loss_B: {losses_b[-1]:.6f}, Replay: {len(replay_a)}, Score_A: {game.score_a:.1f}, Score_B: {game.score_b:.1f}")
             
             # Sync target networks periodically
             if j % sync_freq == 0:
