@@ -1,95 +1,139 @@
 """
-Utility functions for testing, evaluation, and visualization
+Utility functions for testing, evaluation, and visualization (Multi-Agent)
 """
 
 import numpy as np
 import torch
+import sys
+sys.path.append('..')
 from matplotlib import pylab as plt
-from config import ACTION_SET, MAX_TEST_MOVES, PLOT_CONFIG, RUNNING_MEAN_WINDOW
-from Gridworld import Gridworld
+from config import ACTION_SET, PLOT_CONFIG, RUNNING_MEAN_WINDOW, GRID_SIZE, MAX_TURNS, LAYER_SIZES
+from CarGame import CarGame
 
 
-def test_model(model, mode='static', display=True, noise_factor=10.0):
+def test_models(model_a, model_b, display=True, noise_factor=10.0):
     """
-    Test the trained model on a single game
+    Test both trained models on a single game
     
     Args:
-        model: Trained DQN model
-        mode: Game mode ('static' or 'random')
+        model_a: Trained DQN model for agent A (pursuer)
+        model_b: Trained DQN model for agent B (evader)
         display: Whether to print game states
         noise_factor: Amount of noise to add to state
         
     Returns:
-        win: Boolean indicating if the game was won
+        crashed: Boolean indicating if A caught B
+        turns: Number of turns played
+        score_a: Final score for A
+        score_b: Final score for B
     """
-    i = 0
-    test_game = Gridworld(mode=mode)
-    state_ = test_game.board.render_np().reshape(1, 64) + np.random.rand(1, 64) / noise_factor
+    game = CarGame(size=GRID_SIZE, max_turns=MAX_TURNS)
+    state_ = game.get_state() + np.random.rand(LAYER_SIZES['l1']) / noise_factor
     state = torch.from_numpy(state_).float()
     
     if display:
         print("Initial State:")
-        print(test_game.display())
+        print(game.display())
+        print(f"Car A: {game.board.car_a_pos}, Car B: {game.board.car_b_pos}")
+        print()
+    
+    turn = 0
+    while not game.game_over:
+        # Agent A selects action
+        qval_a = model_a(state)
+        qval_a_ = qval_a.data.numpy()
+        action_a = np.argmax(qval_a_)
         
-    status = 1
-    while status == 1:
-        qval = model(state)
-        qval_ = qval.data.numpy()
-        action_ = np.argmax(qval_)
-        action = ACTION_SET[action_]
+        # Agent B selects action
+        qval_b = model_b(state)
+        qval_b_ = qval_b.data.numpy()
+        action_b = np.argmax(qval_b_)
         
         if display:
-            print('Move #: %s; Taking action: %s' % (i, action))
-            
-        test_game.makeMove(action)
-        state_ = test_game.board.render_np().reshape(1, 64) + np.random.rand(1, 64) / noise_factor
+            print(f'Turn {turn}: A moves {list(ACTION_SET.values())[action_a]}, B moves {list(ACTION_SET.values())[action_b]}')
+        
+        # Execute both actions
+        reward_a, reward_b, game_over = game.executeRound(action_a, action_b)
+        
+        # Get next state
+        state_ = game.get_state() + np.random.rand(LAYER_SIZES['l1']) / noise_factor
         state = torch.from_numpy(state_).float()
         
         if display:
-            print(test_game.display())
-            
-        reward = test_game.reward()
-        if reward != -1:
-            if reward > 0:
-                status = 2
-                if display:
-                    print("Game won! Reward: %s" % (reward,))
-            else:
-                status = 0
-                if display:
-                    print("Game LOST. Reward: %s" % (reward,))
-        i += 1
-        if i > MAX_TEST_MOVES:
-            if display:
-                print("Game lost; too many moves.")
+            print(game.display())
+            print(f"Car A: {game.board.car_a_pos}, Car B: {game.board.car_b_pos}")
+            print(f"Rewards: A={reward_a}, B={reward_b}")
+            print()
+        
+        turn += 1
+        
+        if game_over:
             break
     
-    win = True if status == 2 else False
-    return win
+    info = game.get_info()
+    
+    if display:
+        if info['crashed']:
+            print(f"CRASH! Agent A caught Agent B in {turn} turns!")
+        else:
+            print(f"Agent B survived for {turn} turns!")
+        print(f"Final Scores: A={info['score_a']}, B={info['score_b']}")
+    
+    return info['crashed'], turn, info['score_a'], info['score_b']
 
 
-def evaluate_model(model, mode='random', max_games=1000, noise_factor=10.0):
+def evaluate_models(model_a, model_b, max_games=100, noise_factor=10.0):
     """
-    Evaluate model performance over multiple games
+    Evaluate both models over multiple games
     
     Args:
-        model: Trained DQN model
-        mode: Game mode ('static' or 'random')
+        model_a: Trained DQN model for agent A
+        model_b: Trained DQN model for agent B
         max_games: Number of games to play
         noise_factor: Amount of noise to add to state
         
     Returns:
-        win_perc: Win percentage
+        stats: Dictionary of evaluation statistics
     """
-    wins = 0
+    crashes = 0
+    total_turns = 0
+    scores_a = []
+    scores_b = []
+    
     for i in range(max_games):
-        win = test_model(model, mode=mode, display=False, noise_factor=noise_factor)
-        if win:
-            wins += 1
-    win_perc = float(wins) / float(max_games)
-    print("Games played: {0}, # of wins: {1}".format(max_games, wins))
-    print("Win percentage: {:.1f}%".format(100.0 * win_perc))
-    return win_perc
+        crashed, turns, score_a, score_b = test_models(
+            model_a, model_b, display=False, noise_factor=noise_factor
+        )
+        if crashed:
+            crashes += 1
+        total_turns += turns
+        scores_a.append(score_a)
+        scores_b.append(score_b)
+    
+    crash_rate = (crashes / max_games) * 100
+    avg_turns = total_turns / max_games
+    avg_score_a = np.mean(scores_a)
+    avg_score_b = np.mean(scores_b)
+    
+    print("=" * 60)
+    print("EVALUATION RESULTS")
+    print("=" * 60)
+    print(f"Games played: {max_games}")
+    print(f"Crashes (A wins): {crashes} ({crash_rate:.1f}%)")
+    print(f"Survivals (B wins): {max_games - crashes} ({100 - crash_rate:.1f}%)")
+    print(f"Average game length: {avg_turns:.1f} turns")
+    print(f"Average score A: {avg_score_a:.1f}")
+    print(f"Average score B: {avg_score_b:.1f}")
+    print("=" * 60)
+    
+    return {
+        'crash_rate': crash_rate,
+        'avg_turns': avg_turns,
+        'avg_score_a': avg_score_a,
+        'avg_score_b': avg_score_b,
+        'crashes': crashes,
+        'survivals': max_games - crashes
+    }
 
 
 def running_mean(x, N=None):
