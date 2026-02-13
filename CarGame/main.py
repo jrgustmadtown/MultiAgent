@@ -24,6 +24,8 @@ def main():
                        help='Skip evaluation after training')
     parser.add_argument('--save', type=str, default=None,
                        help='Path to save trained model')
+    parser.add_argument('--save-plot', type=str, default=None,
+                       help='Path to save plot (e.g., loss.png). If not provided, plot is displayed')
     parser.add_argument('--demo', action='store_true',
                        help='Show a demo game after training')
     
@@ -56,7 +58,11 @@ def main():
         # Plot losses
         if not args.no_plot:
             smooth = (model_type != 'vanilla')  # Smooth for longer training runs
-            plot_losses(losses, title=f"{model_type.title()} DQN Training Loss", smooth=smooth)
+            plot_path = None
+            if args.save_plot:
+                plot_path = args.save_plot if len(models_to_train) == 1 else f"{model_type}_{args.save_plot}"
+            plot_losses(losses, title=f"{model_type.title()} DQN Training Loss", 
+                       smooth=smooth, save_path=plot_path)
         
         # Evaluate the model
         if not args.no_eval:

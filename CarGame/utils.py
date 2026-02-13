@@ -115,7 +115,7 @@ def running_mean(x, N=None):
     return y
 
 
-def plot_losses(losses, title="Training Loss", smooth=False):
+def plot_losses(losses, title="Training Loss", smooth=False, save_path=None):
     """
     Plot training losses
     
@@ -123,6 +123,7 @@ def plot_losses(losses, title="Training Loss", smooth=False):
         losses: List or array of loss values
         title: Plot title
         smooth: Whether to apply smoothing
+        save_path: If provided, save plot to this file instead of showing
     """
     losses = np.array(losses)
     
@@ -139,7 +140,13 @@ def plot_losses(losses, title="Training Loss", smooth=False):
     plt.xlabel("Iterations", fontsize=PLOT_CONFIG['xlabel_fontsize'])
     plt.ylabel("Loss", fontsize=PLOT_CONFIG['ylabel_fontsize'])
     plt.title(title, fontsize=PLOT_CONFIG['title_fontsize'])
-    plt.show()
+    
+    if save_path:
+        plt.savefig(save_path, dpi=300, bbox_inches='tight')
+        print(f"Plot saved to {save_path}")
+        plt.close()
+    else:
+        plt.show()
 
 
 def save_model(model, filepath):

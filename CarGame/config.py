@@ -1,5 +1,5 @@
 """
-Configuration file for DQN GridWorld
+Configuration file for DQN CarGame
 Modify parameters here to experiment with different settings
 """
 

@@ -1,5 +1,5 @@
 """
-Deep Q-learning for GridWorld - Complete Implementation
+Deep Q-learning for CarGame - Complete Implementation
 Includes Vanilla Model, Experience Replay, and Target Network
 """
 
