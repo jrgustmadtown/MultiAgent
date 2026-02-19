@@ -1,25 +1,38 @@
 from CarBoard import CarBoard, addTuple
 import numpy as np
+import sys
+sys.path.append('.')
+from config import CRASH_REWARD
 
 class CarGame:
     """
-    Two-player car crash game
+    Two-player car crash game with normalized coordinates
     - Car A (pursuer) tries to crash into Car B
     - Car B (evader) tries to avoid Car A
     - Both move simultaneously
-    - Players earn points for squares they land on
-    - Crash gives A +10, B -10
+    - Movement scaled by 1/grid_size per turn
+    - Crash gives A +CRASH_REWARD, B -CRASH_REWARD
     """
     
-    # Action mapping: 0=up, 1=down, 2=left, 3=right 
-    ACTIONS = {
-        0: (-1, 0),  # up
-        1: (1, 0),   # down
-        2: (0, -1),  # left
-        3: (0, 1)    # right
-    }
-    
     def __init__(self, size=5, max_turns=50):
+        if size < 3 or size % 2 == 0:
+            raise ValueError("Size must be odd and >= 3")
+        
+        self.board = CarBoard(size=size)
+        self.size = size
+        self.max_turns = max_turns
+        self.current_turn = 0
+        self.game_over = False
+        self.crashed = False
+        
+        # Action deltas scaled to normalized coordinates
+        step = 1.0 / size
+        self.ACTIONS = {
+            0: (-step, 0.0),  # up
+            1: (step, 0.0),   # down
+            2: (0.0, -step),  # left
+            3: (0.0, step)    # right
+        }
         if size < 3 or size % 2 == 0:
             raise ValueError("Size must be odd and >= 3")
         
@@ -37,6 +50,7 @@ class CarGame:
     def get_valid_actions(self, car='A'):
         """
         Get list of valid action indices for a car at its current position
+        With normalized coordinates and clamping, filter out moves that don't change position
         Returns list of action indices (0=up, 1=down, 2=left, 3=right)
         """
         pos = self.board.car_a_pos if car == 'A' else self.board.car_b_pos
@@ -44,8 +58,15 @@ class CarGame:
         
         for action_idx, delta in self.ACTIONS.items():
             new_pos = addTuple(pos, delta)
-            if self.board._is_valid_pos(new_pos):
+            # Clamp the new position
+            clamped_pos = (max(0.0, min(1.0, new_pos[0])), max(0.0, min(1.0, new_pos[1])))
+            # Only add if the clamped position is different from current (i.e., move is effective)
+            if clamped_pos != pos:
                 valid.append(action_idx)
+        
+        # If no valid moves (shouldn't happen except at exact corners), allow all
+        if not valid:
+            valid = list(self.ACTIONS.keys())
         
         return valid
     
@@ -83,8 +104,8 @@ class CarGame:
         if self.board.is_crash():
             self.crashed = True
             self.game_over = True
-            reward_a += 10  # A gets bonus for crashing
-            reward_b -= 10  # B gets penalty for being caught
+            reward_a += CRASH_REWARD  # A gets bonus for crashing
+            reward_b -= CRASH_REWARD  # B gets penalty for being caught
         
         # Update cumulative scores with zero-sum rewards
         self.score_a += reward_a

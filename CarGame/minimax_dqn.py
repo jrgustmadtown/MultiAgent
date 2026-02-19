@@ -78,6 +78,8 @@ def train_minimax_dqn(config=None):
     
     losses_a = []
     losses_b = []
+    scores_a_per_epoch = []  # Track cumulative scores per epoch
+    scores_b_per_epoch = []
     j = 0  # Global step counter
     
     for i in range(epochs):
@@ -186,9 +188,13 @@ def train_minimax_dqn(config=None):
                 sync_target_network(model_a, target_a)
                 sync_target_network(model_b, target_b)
                 print(f"Target networks synchronized at step {j}")
+        
+        # Record scores for this epoch
+        scores_a_per_epoch.append(game.score_a)
+        scores_b_per_epoch.append(game.score_b)
     
     print("\nTraining completed!")
-    return model_a, model_b, losses_a, losses_b
+    return model_a, model_b, losses_a, losses_b, scores_a_per_epoch, scores_b_per_epoch
 
 
 if __name__ == "__main__":

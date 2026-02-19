@@ -4,8 +4,9 @@ Car Crash Game: Agent A (Pursuer) vs Agent B (Evader)
 """
 
 import argparse
+import numpy as np
 from minimax_dqn import train_minimax_dqn
-from utils import test_models, evaluate_models, plot_losses, save_model, visualize_policy
+from utils import test_models, evaluate_models, plot_losses, save_model, visualize_policy, clear_policy_images
 from config import MINIMAX_CONFIG, EVAL_GAMES, NOISE_FACTOR_TEST, GRID_SIZE
 import matplotlib.pyplot as plt
 
@@ -30,8 +31,17 @@ def main():
                        help='Generate policy visualization images for all opponent positions')
     parser.add_argument('--policy-dir', type=str, default='policy_images',
                        help='Directory to save policy visualizations')
+    parser.add_argument('--policy-steps', type=int, default=1,
+                       help='Number of successive moves to show in policy visualizations (default: 1)')
+    parser.add_argument('--clear-policy', action='store_true',
+                       help='Clear all policy visualization images and exit')
     
     args = parser.parse_args()
+    
+    # Handle clear-policy command
+    if args.clear_policy:
+        clear_policy_images(args.policy_dir)
+        return
     
     # Override config if epochs specified
     config = MINIMAX_CONFIG.copy()
@@ -43,7 +53,7 @@ def main():
     print("="*70 + "\n")
     
     # Train both agents
-    model_a, model_b, losses_a, losses_b = train_minimax_dqn(config)
+    model_a, model_b, losses_a, losses_b, scores_a, scores_b = train_minimax_dqn(config)
     
     # Plot losses
     if not args.no_plot:
@@ -69,6 +79,45 @@ def main():
         plot_filename = args.save_plot if args.save_plot else 'training_losses.png'
         plt.savefig(plot_filename, dpi=300, bbox_inches='tight')
         print(f"\nPlots saved to {plot_filename}")
+        plt.close()
+    
+    # Plot scores over epochs
+    if not args.no_plot:
+        plt.figure(figsize=(14, 5))
+        
+        plt.subplot(1, 2, 1)
+        plt.plot(scores_a, color='red', alpha=0.6, label='Agent A')
+        plt.plot(scores_b, color='blue', alpha=0.6, label='Agent B')
+        plt.axhline(y=0, color='black', linestyle='--', linewidth=0.5)
+        plt.title("Cumulative Scores per Epoch", fontsize=16)
+        plt.xlabel("Epoch", fontsize=14)
+        plt.ylabel("Score", fontsize=14)
+        plt.legend(fontsize=12)
+        plt.grid(alpha=0.3)
+        
+        # Running average of scores
+        plt.subplot(1, 2, 2)
+        window = 50
+        if len(scores_a) >= window:
+            from utils import running_mean
+            smooth_a = running_mean(np.array(scores_a), window)
+            smooth_b = running_mean(np.array(scores_b), window)
+            plt.plot(smooth_a, color='red', linewidth=2, label='Agent A (avg)')
+            plt.plot(smooth_b, color='blue', linewidth=2, label='Agent B (avg)')
+        else:
+            plt.plot(scores_a, color='red', alpha=0.6, label='Agent A')
+            plt.plot(scores_b, color='blue', alpha=0.6, label='Agent B')
+        plt.axhline(y=0, color='black', linestyle='--', linewidth=0.5)
+        plt.title("Scores (Smoothed)", fontsize=16)
+        plt.xlabel("Epoch", fontsize=14)
+        plt.ylabel("Score", fontsize=14)
+        plt.legend(fontsize=12)
+        plt.grid(alpha=0.3)
+        
+        plt.tight_layout()
+        score_filename = 'training_scores.png'
+        plt.savefig(score_filename, dpi=300, bbox_inches='tight')
+        print(f"Score plots saved to {score_filename}")
         plt.close()
     
     # Evaluate the models
@@ -98,11 +147,22 @@ def main():
         print("\n" + "-"*70)
         print("GENERATING POLICY VISUALIZATIONS")
         print("-"*70)
-        # Generate for all possible opponent positions
-        for i in range(GRID_SIZE):
-            for j in range(GRID_SIZE):
-                visualize_policy(model_a, model_b, (i, j), output_dir=args.policy_dir)
-        print(f"All policy visualizations saved to {args.policy_dir}/")
+        total = GRID_SIZE * GRID_SIZE * GRID_SIZE * GRID_SIZE
+        count = 0
+        # Generate for all possible state combinations
+        for i_a in range(GRID_SIZE):
+            for j_a in range(GRID_SIZE):
+                for i_b in range(GRID_SIZE):
+                    for j_b in range(GRID_SIZE):
+                        # Convert grid indices to normalized coordinates
+                        pos_a = (i_a / GRID_SIZE, j_a / GRID_SIZE)
+                        pos_b = (i_b / GRID_SIZE, j_b / GRID_SIZE)
+                        visualize_policy(model_a, model_b, pos_a, pos_b, 
+                                       output_dir=args.policy_dir, steps=args.policy_steps)
+                        count += 1
+                        if count % 50 == 0:
+                            print(f"Generated {count}/{total} visualizations...")
+        print(f"All {total} policy visualizations saved to {args.policy_dir}/")
     
     print("\n" + "="*70 + "\n")
 

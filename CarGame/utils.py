@@ -199,101 +199,144 @@ def plot_losses(losses, title="Training Loss", smooth=False, save_path=None):
         plt.show()
 
 
-def visualize_policy(model_a, model_b, opponent_pos, output_dir='policy_images'):
+def visualize_policy(model_a, model_b, car_a_pos, car_b_pos, output_dir='policy_images', steps=1):
     """
-    Create policy visualization images showing best move for each position
+    Create policy visualization showing trajectory of best moves for a specific state
     
     Args:
         model_a: Trained model for agent A
         model_b: Trained model for agent B
-        opponent_pos: Fixed opponent position (row, col) to visualize policy against
+        car_a_pos: Starting position of car A (row, col)
+        car_b_pos: Starting position of car B (row, col)
         output_dir: Directory to save images
+        steps: Number of successive moves to show (default 1 = immediate best move only)
     """
     import os
     from CarBoard import CarBoard
+    from CarGame import CarGame, addTuple
     
     os.makedirs(output_dir, exist_ok=True)
     
-    # Action to arrow direction mapping
-    action_arrows = {
-        0: (0, -0.4),    # up: arrow points up
-        1: (0, 0.4),     # down: arrow points down
-        2: (-0.4, 0),    # left: arrow points left
-        3: (0.4, 0)      # right: arrow points right
-    }
+    fig, ax = plt.subplots(figsize=(8, 8))
     
-    # Create separate visualizations for each agent
-    for agent, model in [('A', model_a), ('B', model_b)]:
-        fig, ax = plt.subplots(figsize=(10, 10))
+    # Draw grid
+    for i in range(GRID_SIZE + 1):
+        ax.axhline(i, color='gray', linewidth=1)
+        ax.axvline(i, color='gray', linewidth=1)
+    
+    # Simulate trajectory
+    current_a = car_a_pos
+    current_b = car_b_pos
+    
+    for step in range(steps):
+        # Create game state
+        board = CarBoard(size=GRID_SIZE)
+        board.car_a_pos = current_a
+        board.car_b_pos = current_b
         
-        # Draw grid
-        for i in range(GRID_SIZE + 1):
-            ax.axhline(i, color='gray', linewidth=0.5)
-            ax.axvline(i, color='gray', linewidth=0.5)
+        # Get state vector
+        state = torch.from_numpy(board.get_state_vector()).float()
         
-        # For each position on the grid
-        for i in range(GRID_SIZE):
-            for j in range(GRID_SIZE):
-                # Create a temporary game state
-                board = CarBoard(size=GRID_SIZE)
-                
-                if agent == 'A':
-                    board.car_a_pos = (i, j)
-                    board.car_b_pos = opponent_pos
-                    car_pos = (i, j)
-                else:
-                    board.car_a_pos = opponent_pos
-                    board.car_b_pos = (i, j)
-                    car_pos = (i, j)
-                
-                # Get state and predict best action
-                state = torch.from_numpy(board.get_state_vector()).float()
-                qvals = model(state).data.numpy()
-                
-                # Get valid actions
-                from CarGame import CarGame, addTuple
-                temp_game = CarGame(size=GRID_SIZE)
-                temp_game.board = board
-                valid_actions = temp_game.get_valid_actions(agent)
-                
-                # Find best valid action
-                valid_qvals = [(a, qvals[a]) for a in valid_actions]
-                best_action = max(valid_qvals, key=lambda x: x[1])[0]
-                
-                # Draw arrow for best action
-                dx, dy = action_arrows[best_action]
-                # Convert (row, col) to (x, y) for plotting: x=col, y=row (inverted)
-                x = j + 0.5
-                y = GRID_SIZE - i - 0.5  # Invert y-axis
-                
-                color = 'red' if agent == 'A' else 'blue'
-                ax.arrow(x, y, dx, dy, head_width=0.15, head_length=0.1, 
-                        fc=color, ec=color, linewidth=2)
+        # Create temporary game to get valid actions
+        temp_game = CarGame(size=GRID_SIZE)
+        temp_game.board = board
         
-        # Mark opponent position
-        opp_x = opponent_pos[1] + 0.5
-        opp_y = GRID_SIZE - opponent_pos[0] - 0.5
-        opp_color = 'blue' if agent == 'A' else 'red'
-        opp_label = 'B' if agent == 'A' else 'A'
-        ax.plot(opp_x, opp_y, 'o', color=opp_color, markersize=20, 
-               markeredgecolor='black', markeredgewidth=2)
-        ax.text(opp_x, opp_y, opp_label, ha='center', va='center', 
-               fontsize=14, fontweight='bold', color='white')
+        # Get valid actions for both agents
+        valid_actions_a = temp_game.get_valid_actions('A')
+        valid_actions_b = temp_game.get_valid_actions('B')
         
-        # Formatting
-        ax.set_xlim(0, GRID_SIZE)
-        ax.set_ylim(0, GRID_SIZE)
-        ax.set_aspect('equal')
-        ax.set_xlabel('Column', fontsize=12)
-        ax.set_ylabel('Row', fontsize=12)
-        ax.set_title(f'Agent {agent} Policy (Opponent at {opponent_pos})', fontsize=16)
-        ax.invert_yaxis()  # Row 0 at top
+        # Agent A's best action
+        qvals_a = model_a(state).data.numpy()
+        valid_qvals_a = [(a, qvals_a[a]) for a in valid_actions_a]
+        best_action_a = max(valid_qvals_a, key=lambda x: x[1])[0]
         
-        # Save figure
-        filename = f'{output_dir}/agent_{agent}_vs_{opponent_pos[0]}_{opponent_pos[1]}.png'
-        plt.savefig(filename, dpi=300, bbox_inches='tight')
-        print(f"Saved policy visualization: {filename}")
-        plt.close()
+        # Agent B's best action
+        qvals_b = model_b(state).data.numpy()
+        valid_qvals_b = [(a, qvals_b[a]) for a in valid_actions_b]
+        best_action_b = max(valid_qvals_b, key=lambda x: x[1])[0]
+        
+        # Calculate alpha (fade older moves)
+        alpha = 0.3 + 0.7 * (step + 1) / steps
+        
+        # Calculate next positions
+        delta_a = temp_game.ACTIONS[best_action_a]
+        delta_b = temp_game.ACTIONS[best_action_b]
+        next_a = addTuple(current_a, delta_a)
+        next_b = addTuple(current_b, delta_b)
+        
+        # Convert normalized positions to grid coordinates for plotting
+        # Positions are in [0,1], grid is GRID_SIZE x GRID_SIZE
+        grid_curr_a = (current_a[0] * GRID_SIZE, current_a[1] * GRID_SIZE)
+        grid_curr_b = (current_b[0] * GRID_SIZE, current_b[1] * GRID_SIZE)
+        grid_next_a = (next_a[0] * GRID_SIZE, next_a[1] * GRID_SIZE)
+        grid_next_b = (next_b[0] * GRID_SIZE, next_b[1] * GRID_SIZE)
+        
+        # Agent A arrow: from current center to next center (with small offset)
+        offset_a = 0.08  # Offset right and down
+        x_a_start = grid_curr_a[1] + offset_a
+        y_a_start = grid_curr_a[0] + offset_a
+        x_a_end = grid_next_a[1] + offset_a
+        y_a_end = grid_next_a[0] + offset_a
+        dx_a = x_a_end - x_a_start
+        dy_a = y_a_end - y_a_start
+        
+        ax.arrow(x_a_start, y_a_start, dx_a, dy_a, 
+                head_width=0.15, head_length=0.12, 
+                fc='red', ec='red', linewidth=2.5, alpha=alpha)
+        
+        # Agent B arrow: from current center to next center (with small offset)
+        offset_b = -0.08  # Offset left and up
+        x_b_start = grid_curr_b[1] + offset_b
+        y_b_start = grid_curr_b[0] + offset_b
+        x_b_end = grid_next_b[1] + offset_b
+        y_b_end = grid_next_b[0] + offset_b
+        dx_b = x_b_end - x_b_start
+        dy_b = y_b_end - y_b_start
+        
+        ax.arrow(x_b_start, y_b_start, dx_b, dy_b, 
+                head_width=0.15, head_length=0.12, 
+                fc='blue', ec='blue', linewidth=2.5, alpha=alpha)
+        
+        # Update positions for next step
+        current_a = next_a
+        current_b = next_b
+        
+        # Stop if they crash
+        if current_a == current_b:
+            break
+    
+    # Formatting
+    ax.set_xlim(0, GRID_SIZE)
+    ax.set_ylim(0, GRID_SIZE)
+    ax.set_aspect('equal')
+    ax.set_xlabel('Column', fontsize=12)
+    ax.set_ylabel('Row', fontsize=12)
+    title = f'Trajectory: A from {car_a_pos}, B from {car_b_pos}'
+    if steps > 1:
+        title += f' ({steps} steps)'
+    ax.set_title(title, fontsize=14)
+    ax.set_xticks(range(GRID_SIZE + 1))
+    ax.set_yticks(range(GRID_SIZE + 1))
+    ax.invert_yaxis()  # Row 0 at top
+    
+    # Save figure
+    filename = f'{output_dir}/state_A{car_a_pos[0]}{car_a_pos[1]}_B{car_b_pos[0]}{car_b_pos[1]}.png'
+    plt.savefig(filename, dpi=150, bbox_inches='tight')
+    plt.close()
+    
+    return filename
+
+
+def clear_policy_images(directory='policy_images'):
+    """Clear all policy visualization images"""
+    import os
+    import shutil
+    
+    if os.path.exists(directory):
+        shutil.rmtree(directory)
+        print(f"Cleared all files in {directory}/")
+    else:
+        print(f"Directory {directory}/ does not exist")
 
 
 def save_model(model, filepath):

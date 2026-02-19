@@ -8,7 +8,7 @@ Modify parameters here to experiment with different settings
 # ============================================================================
 GRID_SIZE = 5  # Must be odd and >= 3
 MAX_TURNS = 50  # Maximum turns per game
-CRASH_REWARD = 10  # Bonus for A, penalty for B when crash occurs
+CRASH_REWARD = 10  # Bonus for A, penalty for B when crash occurs (adjusted for normalized points)
 
 ACTION_SET = {
     0: 'u',  # up
@@ -22,8 +22,8 @@ ACTION_SET = {
 # ============================================================================
 LAYER_SIZES = {
     'l1': GRID_SIZE * GRID_SIZE * 2,  # Input: grid x 2 channels (auto-calculated)
-    'l2': 150,  # First hidden layer
-    'l3': 100,  # Second hidden layer
+    'l2': 128,  # First hidden layer
+    'l3': 128,  # Second hidden layer
     'l4': 4     # Output layer (4 actions: up, down, left, right)
 }
 
@@ -34,12 +34,12 @@ LAYER_SIZES = {
 # Minimax DQN Configuration (Multi-Agent)
 MINIMAX_CONFIG = {
     'epochs': 3000,
-    'gamma': 0.9,           # Discount factor
-    'epsilon': 0.3,         # Exploration rate
-    'learning_rate': 1e-3,
-    'mem_size': 1000,       # Experience replay memory size
-    'batch_size': 200,      # Minibatch size
-    'sync_freq': 500,       # How often to sync target networks
+    'gamma': 0.95,          # Discount factor (higher = more long-term planning)
+    'epsilon': 0.2,         # Exploration rate (lower = more exploitation)
+    'learning_rate': 5e-4,  # Lower LR for more stable learning
+    'mem_size': 2000,       # Larger memory for better experience diversity
+    'batch_size': 256,      # Larger batches for more stable gradients
+    'sync_freq': 250,       # Sync more frequently for better stability
 }
 
 # Vanilla DQN (kept for reference, may not work well for multi-agent)
